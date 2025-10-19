@@ -1,5 +1,8 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
 }
 
 datasource db {
@@ -8,35 +11,41 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String?
-  email         String   @unique
-  phone         String?
-  password      String?  // Nullable for OAuth users
+  email         String    @unique
+  phone         String?   @db.VarChar(15)
+  password      String?
   emailVerified DateTime?
-  image         String?  // Profile picture from Google
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  image         String?
+  role          UserRole  @default(CUSTOMER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   
-  // Relations
-  addresses Address[]
-  cartItems CartItem[]
-  orders    Order[]
+  addresses     Address[]
+  cartItems     CartItem[]
+  orders        Order[]
+  accounts      Account[]
+  sessions      Session[]
+  reviews       ProductReview[]
   
-  // Auth provider
-  accounts Account[]
+  @@index([email])
+  @@index([phone])
+  @@index([createdAt])
+  @@index([role])
+  @@map("users")
 }
 
 model Account {
   id                String  @id @default(cuid())
   userId            String
-  type              String
-  provider          String
+  type              String  @db.VarChar(50)
+  provider          String  @db.VarChar(50)
   providerAccountId String
   refresh_token     String? @db.Text
   access_token      String? @db.Text
   expires_at        Int?
-  token_type        String?
+  token_type        String? @db.VarChar(50)
   scope             String?
   id_token          String? @db.Text
   session_state     String?
@@ -44,6 +53,9 @@ model Account {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@index([provider])
+  @@map("accounts")
 }
 
 model Session {
@@ -52,6 +64,10 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expires])
+  @@map("sessions")
 }
 
 model VerificationToken {
@@ -60,89 +76,223 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+  @@map("verification_tokens")
 }
 
 model Category {
   id          String   @id @default(cuid())
-  name        String
+  name        String   @unique @db.VarChar(100)
+  slug        String   @unique @db.VarChar(120)
   image       String?
+  description String?  @db.Text
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   
   products    Product[]
+  
+  @@index([slug])
+  @@index([isActive])
+  @@index([sortOrder])
+  @@index([createdAt])
+  @@map("categories")
 }
 
 model Product {
-  id          String   @id @default(cuid())
-  name        String
-  price       Float
-  stock       Int
-  images      String[] // JSON array of image paths
-  description String?
-  createdAt   DateTime @default(now())
+  id           String    @id @default(cuid())
+  name         String    @db.VarChar(200)
+  slug         String    @unique @db.VarChar(250)
+  price        Decimal   @db.Decimal(10,2) // ✅ CHANGED: Float → Decimal
+  comparePrice Decimal?  @db.Decimal(10,2)
+  costPrice    Decimal?  @db.Decimal(10,2)
+  sku          String?   @unique @db.VarChar(100)
+  barcode      String?   @db.VarChar(100)
+  stock        Int       @default(0)
+  lowStockAlert Int      @default(5)
+  images       String    @db.Text // ✅ CHANGED: String[] → String (JSON string)
+  description  String?   @db.Text
+  features     String    @db.Text // ✅ CHANGED: String[] → String (JSON string)
+  isActive     Boolean   @default(true)
+  isFeatured   Boolean   @default(false)
+  weight       Decimal?  @db.Decimal(8,3)
+  dimensions   String?   @db.Text // JSON: {length, width, height}
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   
-  categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id])
+  categoryId   String
+  category     Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  cartItems    CartItem[]
+  orderItems   OrderItem[]
+  reviews      ProductReview[]
   
-  cartItems   CartItem[]
-  orderItems  OrderItem[]
+  @@index([categoryId])
+  @@index([stock])
+  @@index([isActive])
+  @@index([isFeatured])
+  @@index([createdAt])
+  @@index([slug])
+  @@index([sku])
+  @@index([barcode])
+  @@fulltext([name, description])
+  @@map("products")
 }
 
 model CartItem {
   id        String @id @default(cuid())
   quantity  Int    @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   
   userId    String
-  user      User   @relation(fields: [userId], references: [id])
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   productId String
-  product   Product @relation(fields: [productId], references: [id])
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   
   @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@index([createdAt])
+  @@map("cart_items")
 }
 
 model Order {
-  id             String   @id @default(cuid())
-  totalPrice     Float
-  paymentProof   String?  // Path to uploaded screenshot
-  status         OrderStatus @default(PENDING)
-  createdAt      DateTime @default(now())
-  deliveryAddress String
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique @db.VarChar(20)
+  totalPrice      Decimal     @db.Decimal(10,2) // ✅ CHANGED: Float → Decimal
+  subtotal        Decimal     @db.Decimal(10,2)
+  taxAmount       Decimal     @db.Decimal(10,2) @default(0)
+  shippingFee     Decimal     @db.Decimal(10,2) @default(0)
+  discountAmount  Decimal     @db.Decimal(10,2) @default(0)
+  paymentProof    String?
+  status          OrderStatus @default(PENDING)
+  paymentMethod   String?     @db.VarChar(50)
+  shippingMethod  String?     @db.VarChar(50)
+  trackingNumber  String?     @db.VarChar(100)
+  notes           String?     @db.Text
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  paidAt          DateTime?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
   
-  userId         String
-  user           User @relation(fields: [userId], references: [id])
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Restrict)
   
-  orderItems     OrderItem[]
+  addressId String
+  address   Address @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  
+  orderItems OrderItem[]
+  
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([orderNumber])
+  @@index([trackingNumber])
+  @@index([paidAt])
+  @@map("orders")
 }
 
 model OrderItem {
-  id        String @id @default(cuid())
-  quantity  Int
-  price     Float
+  id          String  @id @default(cuid())
+  quantity    Int
+  price       Decimal @db.Decimal(10,2) // ✅ CHANGED: Float → Decimal
+  total       Decimal @db.Decimal(10,2)
   
-  orderId   String
-  order     Order @relation(fields: [orderId], references: [id])
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
 }
 
 model Address {
-  id           String @id @default(cuid())
-  province     String
-  city         String
-  suburb       String
-  streetAddress String
-  postalCode   String
-  phone        String
+  id             String   @id @default(cuid())
+  fullName       String   @db.VarChar(100)
+  phone          String   @db.VarChar(15)
+  province       String   @db.VarChar(50)
+  city           String   @db.VarChar(50)
+  suburb         String   @db.VarChar(50)
+  streetAddress  String   @db.VarChar(200)
+  unitNumber     String?  @db.VarChar(20)
+  postalCode     String   @db.VarChar(10)
+  isDefault      Boolean  @default(false)
+  type           AddressType @default(HOME)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
   
-  userId       String
-  user         User @relation(fields: [userId], references: [id])
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  orders         Order[]
+  
+  @@index([userId])
+  @@index([isDefault])
+  @@index([province, city])
+  @@map("addresses")
+}
+
+model ProductReview {
+  id          String   @id @default(cuid())
+  rating      Int
+  title       String?  @db.VarChar(200)
+  comment     String?  @db.Text
+  isVerified  Boolean  @default(false)
+  isHelpful   Int      @default(0)
+  isReported  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, productId])
+  @@index([productId])
+  @@index([rating])
+  @@index([isVerified])
+  @@index([createdAt])
+  @@map("product_reviews")
+}
+
+model SiteSettings {
+  id          String   @id @default(cuid())
+  key         String   @unique @db.VarChar(100)
+  value       String?  @db.Text
+  type        String   @db.VarChar(50)
+  description String?  @db.VarChar(200)
+  updatedAt   DateTime @updatedAt
+  updatedBy   String
+  
+  @@map("site_settings")
+}
+
+// ENUMS
+enum UserRole {
+  CUSTOMER
+  ADMIN
+  MODERATOR
 }
 
 enum OrderStatus {
   PENDING
-  VERIFIED
+  PAYMENT_VERIFIED
+  PROCESSING
   SHIPPED
   DELIVERED
   CANCELLED
+  REFUNDED
+}
+
+enum AddressType {
+  HOME
+  WORK
+  OTHER
 }

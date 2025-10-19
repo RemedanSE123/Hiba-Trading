@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { AuthProvider } from '@/components/AuthProvider'
@@ -9,7 +9,13 @@ export const metadata: Metadata = {
   title: 'SA E-Commerce',
   description: 'Mobile-first e-commerce for South Africa',
   manifest: '/manifest.json',
+}
+
+export const viewport: Viewport = {
   themeColor: '#000000',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 }
 
 export default function RootLayout({
@@ -19,10 +25,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-        <meta name="theme-color" content="#000000" />
-      </head>
       <body className={inter.className}>
         <AuthProvider>
           {children}
